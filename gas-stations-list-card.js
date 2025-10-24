@@ -1,8 +1,9 @@
 /**
- * Gas Stations Card - v6.2
- * Muestra gasolineras en mapa Leaflet + lista con scroll interno.
+ * Gas Stations Card - v6.0
+ * Combina mapa + lista de gasolineras con scroll interno, orden dinámico
+ * y apertura en Google/Apple/Waze según el dispositivo.
  * Compatible con Home Assistant 2025.10+
- * Editor visual FUNCIONAL - Soporte UTF-8
+ * Editor visual funcional - Soporte UTF-8
  */
 
 (() => {
@@ -14,11 +15,11 @@
       super();
       this.attachShadow({ mode: "open" });
       this.sortMode = "distancia";
-      this.map = null;
     }
 
     async connectedCallback() {
       await customElements.whenDefined("ha-icon");
+      await customElements.whenDefined("ha-map");
     }
 
     setConfig(config) {
@@ -42,8 +43,7 @@
           .header {
             display:flex; justify-content:space-between; align-items:center;
             padding:12px 16px; border-bottom:1px solid var(--divider-color,#ddd);
-            background:var(--card-background-color);
-            position:sticky; top:0; z-index:2;
+            background:var(--card-background-color); position:sticky; top:0; z-index:2;
           }
           .title { font-weight:600; font-size:18px; color:var(--primary-text-color); display:flex; align-items:center; gap:6px; }
           select {
@@ -73,11 +73,18 @@
             background:var(--primary-color); color:#fff;
             padding:4px 10px; border-radius:12px;
             font-size:13px; cursor:pointer; display:flex; align-items:center; gap:4px;
+            text-decoration:none;
           }
           .distance:hover { opacity:0.9; }
           .list-container::-webkit-scrollbar { width:8px; }
-          .list-container::-webkit-scrollbar-thumb { background:var(--primary-color); border-radius:4px; }
-          #map { height:300px; width:100%; border-bottom:1px solid var(--divider-color,#ddd); }
+          .list-container::-webkit-scrollbar-thumb {
+            background:var(--primary-color); border-radius:4px;
+          }
+          ha-map {
+            height:300px;
+            width:100%;
+            border-bottom:1px solid var(--divider-color,#ddd);
+          }
           .empty { text-align:center; padding:24px; color:var(--secondary-text-color); }
         </style>
 
@@ -152,16 +159,21 @@
 
       const data = this._sortGasStations(this._gasData);
 
-      // Renderizar mapa con Leaflet
+      // Mapa
       if (this.showMap) {
-        const mapContainer = document.createElement("div");
-        mapContainer.id = "map";
-        contentEl.appendChild(mapContainer);
-
-        setTimeout(() => this._renderLeafletMap(mapContainer, data), 0);
+        const mapEl = document.createElement("ha-map");
+        mapEl.hass = this._hass;
+        mapEl.zoom = this.zoom;
+        mapEl.entities = data.map((g, i) => ({
+          entity_id: `sensor.gasolinera_${i}`,
+          name: g.nombre || "Gasolinera",
+          latitude: g.latitud,
+          longitude: g.longitud,
+        }));
+        contentEl.appendChild(mapEl);
       }
 
-      // Renderizar lista
+      // Lista
       if (this.showList) {
         const listEl = document.createElement("div");
         listEl.classList.add("list-container");
@@ -198,59 +210,6 @@
       }
     }
 
-    _renderLeafletMap(container, gasolineras) {
-  if (!window.L) {
-    this._renderMsg("Leaflet no disponible en este entorno.");
-    return;
-  }
-
-  // Destruir mapa previo si existe
-  if (this.map) {
-    this.map.remove();
-    this.map = null;
-  }
-
-  const L = window.L;
-  const first = gasolineras.find(g => g.latitud && g.longitud);
-  if (!first) {
-    this._renderMsg("No hay coordenadas válidas.");
-    return;
-  }
-
-  this.map = L.map(container).setView(
-    [parseFloat(first.latitud), parseFloat(first.longitud)],
-    this.zoom
-  );
-
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    attribution: '&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors',
-    maxZoom: 19,
-  }).addTo(this.map);
-
-  const markers = [];
-
-  gasolineras.forEach((g) => {
-    if (!g.latitud || !g.longitud) return;
-    const marker = L.marker([parseFloat(g.latitud), parseFloat(g.longitud)]).addTo(this.map);
-    marker.bindPopup(`
-      <strong>${g.nombre ?? "Gasolinera"}</strong><br>
-      ${g.direccion ?? ""}${g.localidad ? ", " + g.localidad : ""}<br>
-      <b>${g.precio ?? "-"} €/L</b>
-    `);
-    markers.push(marker);
-  });
-
-  // Ajustar zoom y posición a todos los marcadores
-  const group = L.featureGroup(markers);
-  this.map.fitBounds(group.getBounds(), { padding: [20, 20] });
-
-  // 🔧 Solución clave: recalcular tamaño al hacerse visible
-  setTimeout(() => {
-    this.map.invalidateSize();
-  }, 300);
-}
-
-
     _renderMsg(msg) {
       const contentEl = this.shadowRoot.getElementById("content");
       contentEl.innerHTML = `<div class="empty">${msg}</div>`;
@@ -272,7 +231,7 @@
   customElements.define(CARD_TYPE, GasStationsCard);
 
   // -------------------------------------------------------------
-  // EDITOR VISUAL
+  // EDITOR VISUAL FUNCIONAL
   // -------------------------------------------------------------
   class GasStationsCardEditor extends HTMLElement {
     constructor() {
@@ -304,12 +263,15 @@
             border-radius:4px; background:var(--card-background-color);
             color:var(--primary-text-color); font-size:14px;
           }
+          input:focus, select:focus { outline:none; border-color:var(--primary-color); }
+          .hint { font-size:12px; color:var(--secondary-text-color); margin-top:4px; }
           .checkbox { display:flex; align-items:center; gap:8px; }
         </style>
         <div class="editor-container">
           <div class="field">
             <label>Entidad del sensor</label>
             <select id="entity-select"></select>
+            <div class="hint">Selecciona el sensor con los datos de gasolineras</div>
           </div>
 
           <div class="checkbox">
@@ -324,65 +286,74 @@
 
           <div class="field">
             <label>Altura máxima lista (px)</label>
-            <input id="height-input" type="number" value="${parseInt(this._config.max_height) || 380}" />
+            <input id="height-input" type="number" min="200" max="1000" step="10"
+              value="${parseInt(this._config.max_height) || 380}" />
           </div>
 
           <div class="field">
             <label>Zoom inicial del mapa</label>
-            <input id="zoom-input" type="number" value="${parseInt(this._config.zoom) || 12}" />
+            <input id="zoom-input" type="number" min="5" max="20" step="1"
+              value="${parseInt(this._config.zoom) || 12}" />
           </div>
         </div>
       `;
 
       const entitySelect = this.querySelector("#entity-select");
-      Object.keys(this._hass.states)
+      const sensors = Object.keys(this._hass.states)
         .filter(e => e.startsWith("sensor."))
-        .forEach(entityId => {
-          const option = document.createElement("option");
-          option.value = entityId;
-          option.textContent = this._hass.states[entityId].attributes.friendly_name || entityId;
-          if (entityId === this._config.entity) option.selected = true;
-          entitySelect.appendChild(option);
-        });
+        .sort();
 
-      entitySelect.addEventListener("change", e => {
-        this._config.entity = e.target.value;
+      sensors.forEach(entityId => {
+        const option = document.createElement("option");
+        option.value = entityId;
+        option.textContent = this._hass.states[entityId].attributes.friendly_name || entityId;
+        if (entityId === this._config.entity) option.selected = true;
+        entitySelect.appendChild(option);
+      });
+
+      entitySelect.addEventListener("change", (ev) => {
+        this._config.entity = ev.target.value;
         this._fireConfigChanged();
       });
 
-      ["show-map", "show-list", "height-input", "zoom-input"].forEach(id => {
-        this.querySelector(`#${id}`).addEventListener("input", e => {
-          if (id.includes("show")) {
-            this._config[id.replace("-", "_")] = e.target.checked;
-          } else if (id === "height-input") {
-            this._config.max_height = e.target.value + "px";
-          } else if (id === "zoom-input") {
-            this._config.zoom = parseInt(e.target.value);
-          }
+      ["show-map", "show-list"].forEach(id => {
+        this.querySelector(`#${id}`).addEventListener("change", (ev) => {
+          const key = id.replace("-", "_");
+          this._config[key] = ev.target.checked;
           this._fireConfigChanged();
         });
+      });
+
+      this.querySelector("#height-input").addEventListener("input", (ev) => {
+        this._config.max_height = ev.target.value + "px";
+        this._fireConfigChanged();
+      });
+
+      this.querySelector("#zoom-input").addEventListener("input", (ev) => {
+        this._config.zoom = parseInt(ev.target.value);
+        this._fireConfigChanged();
       });
     }
 
     _fireConfigChanged() {
-      const ev = new Event("config-changed", { bubbles: true, composed: true });
-      ev.detail = { config: this._config };
-      this.dispatchEvent(ev);
+      const event = new Event("config-changed", { bubbles: true, composed: true });
+      event.detail = { config: this._config };
+      this.dispatchEvent(event);
     }
   }
 
   customElements.define("gas-stations-card-editor", GasStationsCardEditor);
 
-  // Registro
+  // Registro de la tarjeta
   window.customCards = window.customCards || [];
   window.customCards.push({
     type: CARD_TYPE,
     name: "Gas Stations Card",
-    description: "Muestra gasolineras en mapa y lista con orden dinámico.",
+    description: "Combina mapa y lista de gasolineras con orden dinámico y navegación.",
   });
 
   console.info(
-    "%c GAS-STATIONS-CARD %c v6.2 - Mapa con marcadores + Lista",
+    "%c GAS-STATIONS-CARD %c v6.0 - Mapa + Lista combinados ",
     "color: orange; font-weight: bold; background: black",
     "color: white; font-weight: bold; background: dimgray"
   );
