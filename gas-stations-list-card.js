@@ -1,8 +1,8 @@
 /**
- * Gas Stations Card - v6.4
- * Mapa Leaflet + Lista de gasolineras con orden dinámico
+ * Gas Stations Card - v6.5
+ * Mapa Leaflet funcional (sin marcadores) + Lista de gasolineras
+ * Corrige tiles desalineados en Home Assistant
  * Compatible con Home Assistant 2025.10+
- * Editor visual funcional - Carga segura de Leaflet
  */
 
 (() => {
@@ -22,7 +22,6 @@
     }
 
     async _loadLeaflet() {
-      // Espera hasta que Leaflet esté cargado por Home Assistant
       if (window.L) return window.L;
 
       await new Promise((resolve) => {
@@ -34,7 +33,6 @@
         }, 50);
       });
 
-      // Inyectar CSS si no está presente
       if (!document.querySelector("#leaflet-css")) {
         const link = document.createElement("link");
         link.id = "leaflet-css";
@@ -173,6 +171,42 @@
       }
     }
 
+    async _renderLeafletMap(container, data) {
+      const L = await this._loadLeaflet();
+
+      if (this.map) {
+        this.map.remove();
+        this.map = null;
+      }
+
+      // Esperar a que el contenedor tenga tamaño real
+      await new Promise((resolve) => requestAnimationFrame(resolve));
+
+      const first = data.find((g) => g.latitud && g.longitud);
+      if (!first) {
+        this._renderMsg("No hay coordenadas válidas.");
+        return;
+      }
+
+      this.map = L.map(container, {
+        center: [parseFloat(first.latitud), parseFloat(first.longitud)],
+        zoom: this.zoom,
+        zoomControl: true,
+        preferCanvas: true,
+      });
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors',
+        maxZoom: 19,
+      }).addTo(this.map);
+
+      // Recalcular tamaño después del render
+      setTimeout(() => {
+        this.map.invalidateSize();
+      }, 300);
+    }
+
     async _render() {
       const contentEl = this.shadowRoot.getElementById("content");
       contentEl.innerHTML = "";
@@ -184,64 +218,20 @@
 
       const data = this._sortGasStations(this._gasData);
 
-      // ---- MAPA (Leaflet) ----
+      // Mapa
       if (this.showMap) {
         const mapContainer = document.createElement("div");
         mapContainer.id = "map";
         contentEl.appendChild(mapContainer);
-
-        const L = await this._loadLeaflet();
-
-        if (this.map) {
-          this.map.remove();
-          this.map = null;
-        }
-
-        const first = data.find((g) => g.latitud && g.longitud);
-        if (!first) {
-          this._renderMsg("No hay coordenadas válidas.");
-          return;
-        }
-
-        this.map = L.map(mapContainer).setView(
-          [parseFloat(first.latitud), parseFloat(first.longitud)],
-          this.zoom
-        );
-
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-          attribution:
-            '&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors',
-          maxZoom: 19,
-        }).addTo(this.map);
-
-        const markers = [];
-
-        data.forEach((g) => {
-          if (!g.latitud || !g.longitud) return;
-          const marker = L.marker([parseFloat(g.latitud), parseFloat(g.longitud)]).addTo(this.map);
-          marker.bindPopup(`
-            <strong>${g.nombre ?? "Gasolinera"}</strong><br>
-            ${g.direccion ?? ""}${g.localidad ? ", " + g.localidad : ""}<br>
-            <b>${g.precio ?? "-"} €/L</b>
-          `);
-          markers.push(marker);
-        });
-
-        if (markers.length > 1) {
-          const group = L.featureGroup(markers);
-          this.map.fitBounds(group.getBounds(), { padding: [20, 20] });
-        }
-
-        setTimeout(() => this.map.invalidateSize(), 400);
+        this._renderLeafletMap(mapContainer, data);
       }
 
-      // ---- LISTA ----
+      // Lista
       if (this.showList) {
         const listEl = document.createElement("div");
         listEl.classList.add("list-container");
-        listEl.innerHTML = data
-          .map(
-            (g, i) => `
+        listEl.innerHTML = data.map(
+          (g, i) => `
             <div class="item" data-i="${i}">
               <div class="name">
                 <ha-icon icon="mdi:gas-station"></ha-icon>
@@ -259,8 +249,7 @@
                 </div>
               </div>
             </div>`
-          )
-          .join("");
+        ).join("");
 
         listEl.querySelectorAll(".distance").forEach((btn) => {
           btn.addEventListener("click", (ev) => {
@@ -294,9 +283,7 @@
 
   customElements.define(CARD_TYPE, GasStationsCard);
 
-  // -------------------------------------------------------------
-  // EDITOR VISUAL FUNCIONAL
-  // -------------------------------------------------------------
+  // ------------------------ EDITOR VISUAL ------------------------
   class GasStationsCardEditor extends HTMLElement {
     constructor() {
       super();
@@ -402,11 +389,11 @@
   window.customCards.push({
     type: CARD_TYPE,
     name: "Gas Stations Card",
-    description: "Muestra gasolineras en mapa y lista con orden dinámico.",
+    description: "Muestra gasolineras en mapa (sin marcadores) y lista con orden dinámico.",
   });
 
   console.info(
-    "%c GAS-STATIONS-CARD %c v6.4 - Mapa Leaflet + Lista",
+    "%c GAS-STATIONS-CARD %c v6.5 - Mapa corregido (sin markers)",
     "color: orange; font-weight: bold; background: black",
     "color: white; font-weight: bold; background: dimgray"
   );
