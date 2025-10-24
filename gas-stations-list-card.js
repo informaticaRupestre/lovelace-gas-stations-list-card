@@ -199,37 +199,57 @@
     }
 
     _renderLeafletMap(container, gasolineras) {
-      if (!window.L) {
-        this._renderMsg("Leaflet no disponible en este entorno.");
-        return;
-      }
+  if (!window.L) {
+    this._renderMsg("Leaflet no disponible en este entorno.");
+    return;
+  }
 
-      if (this.map) {
-        this.map.remove();
-        this.map = null;
-      }
+  // Destruir mapa previo si existe
+  if (this.map) {
+    this.map.remove();
+    this.map = null;
+  }
 
-      const L = window.L;
-      this.map = L.map(container).setView(
-        [parseFloat(gasolineras[0].latitud), parseFloat(gasolineras[0].longitud)],
-        this.zoom
-      );
+  const L = window.L;
+  const first = gasolineras.find(g => g.latitud && g.longitud);
+  if (!first) {
+    this._renderMsg("No hay coordenadas válidas.");
+    return;
+  }
 
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors',
-        maxZoom: 19,
-      }).addTo(this.map);
+  this.map = L.map(container).setView(
+    [parseFloat(first.latitud), parseFloat(first.longitud)],
+    this.zoom
+  );
 
-      gasolineras.forEach((g) => {
-        if (!g.latitud || !g.longitud) return;
-        const marker = L.marker([parseFloat(g.latitud), parseFloat(g.longitud)]).addTo(this.map);
-        marker.bindPopup(`
-          <strong>${g.nombre ?? "Gasolinera"}</strong><br>
-          ${g.direccion ?? ""}${g.localidad ? ", " + g.localidad : ""}<br>
-          <b>${g.precio ?? "-"} €/L</b>
-        `);
-      });
-    }
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors',
+    maxZoom: 19,
+  }).addTo(this.map);
+
+  const markers = [];
+
+  gasolineras.forEach((g) => {
+    if (!g.latitud || !g.longitud) return;
+    const marker = L.marker([parseFloat(g.latitud), parseFloat(g.longitud)]).addTo(this.map);
+    marker.bindPopup(`
+      <strong>${g.nombre ?? "Gasolinera"}</strong><br>
+      ${g.direccion ?? ""}${g.localidad ? ", " + g.localidad : ""}<br>
+      <b>${g.precio ?? "-"} €/L</b>
+    `);
+    markers.push(marker);
+  });
+
+  // Ajustar zoom y posición a todos los marcadores
+  const group = L.featureGroup(markers);
+  this.map.fitBounds(group.getBounds(), { padding: [20, 20] });
+
+  // 🔧 Solución clave: recalcular tamaño al hacerse visible
+  setTimeout(() => {
+    this.map.invalidateSize();
+  }, 300);
+}
+
 
     _renderMsg(msg) {
       const contentEl = this.shadowRoot.getElementById("content");
