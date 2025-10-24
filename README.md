@@ -25,7 +25,7 @@ Una tarjeta Lovelace para Home Assistant que muestra una lista de **gasolineras 
 ## ⚙️ Requisitos
 
 Esta tarjeta requiere la integración personalizada  
-➡️ [`ha-geoportal_gasolineras`](https://github.com/tuusuario/ha-geoportal_gasolineras)
+➡️ [github.com/informaticaRupestre/geoportal_gasolineras](https://github.com/informaticaRupestre/geoportal_gasolineras)
 
 La integración debe exponer un **sensor** con un atributo `gasolineras` que contenga una lista de objetos con las propiedades:
 
@@ -47,7 +47,7 @@ gasolineras:
 1. Abre **HACS → Frontend → Repositorios personalizados**  
 2. Añade el repo:  
    ```
-   https://github.com/tuusuario/lovelace-gas-stations-list-card
+   https://github.com/informaticaRupestre/lovelace-gas-stations-list-card
    ```
    Tipo: `Plugin`
 3. Busca la tarjeta en HACS y pulsa **Instalar**.  
