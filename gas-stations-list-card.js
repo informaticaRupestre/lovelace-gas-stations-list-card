@@ -1,9 +1,8 @@
 /**
- * Gas Stations Card - v6.3
- * Combina mapa Leaflet + lista de gasolineras con scroll, orden dinámico
- * y apertura en Google/Apple/Waze según el dispositivo.
+ * Gas Stations Card - v6.4
+ * Mapa Leaflet + Lista de gasolineras con orden dinámico
  * Compatible con Home Assistant 2025.10+
- * Editor visual funcional - Soporte UTF-8
+ * Editor visual funcional - Carga segura de Leaflet
  */
 
 (() => {
@@ -20,6 +19,31 @@
 
     async connectedCallback() {
       await customElements.whenDefined("ha-icon");
+    }
+
+    async _loadLeaflet() {
+      // Espera hasta que Leaflet esté cargado por Home Assistant
+      if (window.L) return window.L;
+
+      await new Promise((resolve) => {
+        const interval = setInterval(() => {
+          if (window.L) {
+            clearInterval(interval);
+            resolve();
+          }
+        }, 50);
+      });
+
+      // Inyectar CSS si no está presente
+      if (!document.querySelector("#leaflet-css")) {
+        const link = document.createElement("link");
+        link.id = "leaflet-css";
+        link.rel = "stylesheet";
+        link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+        document.head.appendChild(link);
+      }
+
+      return window.L;
     }
 
     setConfig(config) {
@@ -149,7 +173,7 @@
       }
     }
 
-    _render() {
+    async _render() {
       const contentEl = this.shadowRoot.getElementById("content");
       contentEl.innerHTML = "";
 
@@ -166,63 +190,58 @@
         mapContainer.id = "map";
         contentEl.appendChild(mapContainer);
 
-        setTimeout(() => {
-          if (!window.L) {
-            this._renderMsg("Leaflet no disponible en este entorno.");
-            return;
-          }
+        const L = await this._loadLeaflet();
 
-          if (this.map) {
-            this.map.remove();
-            this.map = null;
-          }
+        if (this.map) {
+          this.map.remove();
+          this.map = null;
+        }
 
-          const L = window.L;
-          const first = data.find(g => g.latitud && g.longitud);
-          if (!first) {
-            this._renderMsg("No hay coordenadas válidas.");
-            return;
-          }
+        const first = data.find((g) => g.latitud && g.longitud);
+        if (!first) {
+          this._renderMsg("No hay coordenadas válidas.");
+          return;
+        }
 
-          this.map = L.map(mapContainer).setView(
-            [parseFloat(first.latitud), parseFloat(first.longitud)],
-            this.zoom
-          );
+        this.map = L.map(mapContainer).setView(
+          [parseFloat(first.latitud), parseFloat(first.longitud)],
+          this.zoom
+        );
 
-          L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-            attribution: '&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors',
-            maxZoom: 19,
-          }).addTo(this.map);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          attribution:
+            '&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors',
+          maxZoom: 19,
+        }).addTo(this.map);
 
-          const markers = [];
+        const markers = [];
 
-          data.forEach((g) => {
-            if (!g.latitud || !g.longitud) return;
-            const marker = L.marker([parseFloat(g.latitud), parseFloat(g.longitud)]).addTo(this.map);
-            marker.bindPopup(`
-              <strong>${g.nombre ?? "Gasolinera"}</strong><br>
-              ${g.direccion ?? ""}${g.localidad ? ", " + g.localidad : ""}<br>
-              <b>${g.precio ?? "-"} €/L</b>
-            `);
-            markers.push(marker);
-          });
+        data.forEach((g) => {
+          if (!g.latitud || !g.longitud) return;
+          const marker = L.marker([parseFloat(g.latitud), parseFloat(g.longitud)]).addTo(this.map);
+          marker.bindPopup(`
+            <strong>${g.nombre ?? "Gasolinera"}</strong><br>
+            ${g.direccion ?? ""}${g.localidad ? ", " + g.localidad : ""}<br>
+            <b>${g.precio ?? "-"} €/L</b>
+          `);
+          markers.push(marker);
+        });
 
-          if (markers.length > 1) {
-            const group = L.featureGroup(markers);
-            this.map.fitBounds(group.getBounds(), { padding: [20, 20] });
-          }
+        if (markers.length > 1) {
+          const group = L.featureGroup(markers);
+          this.map.fitBounds(group.getBounds(), { padding: [20, 20] });
+        }
 
-          // 🔧 Corregir tamaño al renderizar
-          setTimeout(() => this.map.invalidateSize(), 300);
-        }, 50);
+        setTimeout(() => this.map.invalidateSize(), 400);
       }
 
       // ---- LISTA ----
       if (this.showList) {
         const listEl = document.createElement("div");
         listEl.classList.add("list-container");
-        listEl.innerHTML = data.map(
-          (g, i) => `
+        listEl.innerHTML = data
+          .map(
+            (g, i) => `
             <div class="item" data-i="${i}">
               <div class="name">
                 <ha-icon icon="mdi:gas-station"></ha-icon>
@@ -240,7 +259,8 @@
                 </div>
               </div>
             </div>`
-        ).join("");
+          )
+          .join("");
 
         listEl.querySelectorAll(".distance").forEach((btn) => {
           btn.addEventListener("click", (ev) => {
@@ -386,7 +406,7 @@
   });
 
   console.info(
-    "%c GAS-STATIONS-CARD %c v6.3 - Mapa Leaflet + Lista funcional",
+    "%c GAS-STATIONS-CARD %c v6.4 - Mapa Leaflet + Lista",
     "color: orange; font-weight: bold; background: black",
     "color: white; font-weight: bold; background: dimgray"
   );
