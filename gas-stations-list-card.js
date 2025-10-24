@@ -1,16 +1,16 @@
 /**
- * Gas Stations List Card - v5.1
- * Lista de gasolineras con scroll interno, orden dinamico y
- * apertura de mapas (Google / Apple / Waze segun dispositivo).
+ * Gas Stations Card - v6.0
+ * Combina mapa + lista de gasolineras con scroll interno, orden dinámico
+ * y apertura en Google/Apple/Waze según el dispositivo.
  * Compatible con Home Assistant 2025.10+
- * Editor visual FUNCIONAL - Soporte UTF-8
+ * Editor visual funcional - Soporte UTF-8
  */
 
 (() => {
-  const CARD_TYPE = "gas-stations-list-card";
+  const CARD_TYPE = "gas-stations-card";
   if (customElements.get(CARD_TYPE)) return;
 
-  class GasStationsListCard extends HTMLElement {
+  class GasStationsCard extends HTMLElement {
     constructor() {
       super();
       this.attachShadow({ mode: "open" });
@@ -19,6 +19,7 @@
 
     async connectedCallback() {
       await customElements.whenDefined("ha-icon");
+      await customElements.whenDefined("ha-map");
     }
 
     setConfig(config) {
@@ -28,6 +29,9 @@
 
       this.config = config;
       this.maxHeight = config.max_height || "380px";
+      this.showMap = config.show_map !== false;
+      this.showList = config.show_list !== false;
+      this.zoom = config.zoom || 12;
 
       this.shadowRoot.innerHTML = `
         <style>
@@ -76,25 +80,30 @@
           .list-container::-webkit-scrollbar-thumb {
             background:var(--primary-color); border-radius:4px;
           }
+          ha-map {
+            height:300px;
+            width:100%;
+            border-bottom:1px solid var(--divider-color,#ddd);
+          }
           .empty { text-align:center; padding:24px; color:var(--secondary-text-color); }
         </style>
 
         <ha-card>
           <div class="header">
-            <div class="title"><ha-icon icon="mdi:gas-station"></ha-icon> Gasolineras Cercanas</div>
+            <div class="title"><ha-icon icon="mdi:gas-station"></ha-icon> Gasolineras</div>
             <select id="sort-select">
               <option value="distancia">Por cercan\u00EDa</option>
               <option value="precio">Por precio</option>
             </select>
           </div>
-          <div id="list" class="list-container"></div>
+          <div id="content"></div>
         </ha-card>
       `;
 
       this.shadowRoot.getElementById("sort-select")
         .addEventListener("change", (ev) => {
           this.sortMode = ev.target.value;
-          this._renderList();
+          this._render();
         });
     }
 
@@ -115,7 +124,7 @@
       }
 
       this._gasData = gas;
-      this._renderList();
+      this._render();
     }
 
     _sortGasStations(gasolineras) {
@@ -130,7 +139,6 @@
 
     _openMap(lat, lon) {
       const ua = navigator.userAgent || navigator.vendor || window.opera;
-
       if (/android/i.test(ua)) {
         window.location.href = `geo:${lat},${lon}?q=${lat},${lon}`;
       } else if (/iPad|iPhone|iPod/.test(ua)) {
@@ -140,66 +148,92 @@
       }
     }
 
-    _renderList() {
-      const listEl = this.shadowRoot.getElementById("list");
+    _render() {
+      const contentEl = this.shadowRoot.getElementById("content");
+      contentEl.innerHTML = "";
+
       if (!this._gasData) {
         this._renderMsg("Sin datos");
         return;
       }
 
       const data = this._sortGasStations(this._gasData);
-      listEl.innerHTML = data.map(
-        (g, i) => `
-          <div class="item" data-i="${i}">
-            <div class="name">
-              <ha-icon icon="mdi:gas-station"></ha-icon>
-              ${g.nombre ?? "Gasolinera"}
-            </div>
-            <div class="address">${g.direccion ?? ""}${g.localidad ? ", " + g.localidad : ""}</div>
-            <div class="details">
-              <div class="price">
-                <ha-icon icon="mdi:currency-eur"></ha-icon>
-                ${g.precio ?? "-"} €/L
-              </div>
-              <div class="distance" data-lat="${g.latitud}" data-lon="${g.longitud}">
-                <ha-icon icon="mdi:map-marker"></ha-icon>
-                ${g.distancia_km ?? "-"} km
-              </div>
-            </div>
-          </div>`
-      ).join("");
 
-      listEl.querySelectorAll(".distance").forEach((btn) => {
-        btn.addEventListener("click", (ev) => {
-          const lat = ev.currentTarget.dataset.lat;
-          const lon = ev.currentTarget.dataset.lon;
-          if (lat && lon) this._openMap(lat, lon);
+      // Mapa
+      if (this.showMap) {
+        const mapEl = document.createElement("ha-map");
+        mapEl.hass = this._hass;
+        mapEl.zoom = this.zoom;
+        mapEl.entities = data.map((g, i) => ({
+          entity_id: `sensor.gasolinera_${i}`,
+          name: g.nombre || "Gasolinera",
+          latitude: g.latitud,
+          longitude: g.longitud,
+        }));
+        contentEl.appendChild(mapEl);
+      }
+
+      // Lista
+      if (this.showList) {
+        const listEl = document.createElement("div");
+        listEl.classList.add("list-container");
+        listEl.innerHTML = data.map(
+          (g, i) => `
+            <div class="item" data-i="${i}">
+              <div class="name">
+                <ha-icon icon="mdi:gas-station"></ha-icon>
+                ${g.nombre ?? "Gasolinera"}
+              </div>
+              <div class="address">${g.direccion ?? ""}${g.localidad ? ", " + g.localidad : ""}</div>
+              <div class="details">
+                <div class="price">
+                  <ha-icon icon="mdi:currency-eur"></ha-icon>
+                  ${g.precio ?? "-"} €/L
+                </div>
+                <div class="distance" data-lat="${g.latitud}" data-lon="${g.longitud}">
+                  <ha-icon icon="mdi:map-marker"></ha-icon>
+                  ${g.distancia_km ?? "-"} km
+                </div>
+              </div>
+            </div>`
+        ).join("");
+
+        listEl.querySelectorAll(".distance").forEach((btn) => {
+          btn.addEventListener("click", (ev) => {
+            const lat = ev.currentTarget.dataset.lat;
+            const lon = ev.currentTarget.dataset.lon;
+            if (lat && lon) this._openMap(lat, lon);
+          });
         });
-      });
+
+        contentEl.appendChild(listEl);
+      }
     }
 
     _renderMsg(msg) {
-      const listEl = this.shadowRoot.getElementById("list");
-      listEl.innerHTML = `<div class="empty">${msg}</div>`;
+      const contentEl = this.shadowRoot.getElementById("content");
+      contentEl.innerHTML = `<div class="empty">${msg}</div>`;
     }
 
-    getCardSize() { return 5; }
+    getCardSize() {
+      return this.showMap && this.showList ? 7 : 5;
+    }
 
     static getConfigElement() {
-      return document.createElement("gas-stations-list-card-editor");
+      return document.createElement("gas-stations-card-editor");
     }
 
     static getStubConfig() {
-      return { entity: "", max_height: "380px" };
+      return { entity: "", show_map: true, show_list: true, max_height: "380px" };
     }
   }
 
-  customElements.define(CARD_TYPE, GasStationsListCard);
+  customElements.define(CARD_TYPE, GasStationsCard);
 
   // -------------------------------------------------------------
   // EDITOR VISUAL FUNCIONAL
   // -------------------------------------------------------------
-  class GasStationsListCardEditor extends HTMLElement {
+  class GasStationsCardEditor extends HTMLElement {
     constructor() {
       super();
       this._config = {};
@@ -212,9 +246,7 @@
 
     set hass(hass) {
       this._hass = hass;
-      if (!this._rendered) {
-        this._render();
-      }
+      if (!this._rendered) this._render();
     }
 
     _render() {
@@ -223,121 +255,105 @@
 
       this.innerHTML = `
         <style>
-          .editor-container {
-            padding: 16px;
-            display: flex;
-            flex-direction: column;
-            gap: 20px;
+          .editor-container { padding:16px; display:flex; flex-direction:column; gap:20px; }
+          .field { display:flex; flex-direction:column; gap:8px; }
+          .field label { font-weight:600; font-size:14px; color:var(--primary-text-color); }
+          input, select {
+            padding:8px 12px; border:1px solid var(--divider-color,#ddd);
+            border-radius:4px; background:var(--card-background-color);
+            color:var(--primary-text-color); font-size:14px;
           }
-          .field {
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-          }
-          .field label {
-            font-weight: 600;
-            font-size: 14px;
-            color: var(--primary-text-color);
-          }
-          .field input,
-          .field select {
-            padding: 8px 12px;
-            border: 1px solid var(--divider-color, #ddd);
-            border-radius: 4px;
-            background: var(--card-background-color);
-            color: var(--primary-text-color);
-            font-size: 14px;
-          }
-          .field input:focus,
-          .field select:focus {
-            outline: none;
-            border-color: var(--primary-color);
-          }
-          .hint {
-            font-size: 12px;
-            color: var(--secondary-text-color);
-            margin-top: 4px;
-          }
+          input:focus, select:focus { outline:none; border-color:var(--primary-color); }
+          .hint { font-size:12px; color:var(--secondary-text-color); margin-top:4px; }
+          .checkbox { display:flex; align-items:center; gap:8px; }
         </style>
         <div class="editor-container">
           <div class="field">
-            <label for="entity-select">Entidad del sensor</label>
-            <select id="entity-select">
-              <option value="">-- Selecciona una entidad --</option>
-            </select>
-            <div class="hint">Selecciona el sensor que contiene los datos de gasolineras</div>
+            <label>Entidad del sensor</label>
+            <select id="entity-select"></select>
+            <div class="hint">Selecciona el sensor con los datos de gasolineras</div>
           </div>
-          
+
+          <div class="checkbox">
+            <input type="checkbox" id="show-map" ${this._config.show_map !== false ? "checked" : ""}/>
+            <label for="show-map">Mostrar mapa</label>
+          </div>
+
+          <div class="checkbox">
+            <input type="checkbox" id="show-list" ${this._config.show_list !== false ? "checked" : ""}/>
+            <label for="show-list">Mostrar lista</label>
+          </div>
+
           <div class="field">
-            <label for="height-input">Altura m\u00E1xima (px)</label>
-            <input 
-              id="height-input" 
-              type="number" 
-              min="200" 
-              max="1000" 
-              step="10"
-              value="${parseInt(this._config.max_height) || 380}"
-            />
-            <div class="hint">Altura m\u00E1xima de la lista antes de mostrar scroll</div>
+            <label>Altura máxima lista (px)</label>
+            <input id="height-input" type="number" min="200" max="1000" step="10"
+              value="${parseInt(this._config.max_height) || 380}" />
+          </div>
+
+          <div class="field">
+            <label>Zoom inicial del mapa</label>
+            <input id="zoom-input" type="number" min="5" max="20" step="1"
+              value="${parseInt(this._config.zoom) || 12}" />
           </div>
         </div>
       `;
 
-      // Poblar el selector con entidades tipo sensor
       const entitySelect = this.querySelector("#entity-select");
-      if (entitySelect && this._hass) {
-        const sensors = Object.keys(this._hass.states)
-          .filter(e => e.startsWith("sensor."))
-          .sort();
+      const sensors = Object.keys(this._hass.states)
+        .filter(e => e.startsWith("sensor."))
+        .sort();
 
-        sensors.forEach(entityId => {
-          const option = document.createElement("option");
-          option.value = entityId;
-          option.textContent = this._hass.states[entityId].attributes.friendly_name || entityId;
-          if (entityId === this._config.entity) {
-            option.selected = true;
-          }
-          entitySelect.appendChild(option);
-        });
+      sensors.forEach(entityId => {
+        const option = document.createElement("option");
+        option.value = entityId;
+        option.textContent = this._hass.states[entityId].attributes.friendly_name || entityId;
+        if (entityId === this._config.entity) option.selected = true;
+        entitySelect.appendChild(option);
+      });
 
-        entitySelect.addEventListener("change", (ev) => {
-          this._config.entity = ev.target.value;
+      entitySelect.addEventListener("change", (ev) => {
+        this._config.entity = ev.target.value;
+        this._fireConfigChanged();
+      });
+
+      ["show-map", "show-list"].forEach(id => {
+        this.querySelector(`#${id}`).addEventListener("change", (ev) => {
+          const key = id.replace("-", "_");
+          this._config[key] = ev.target.checked;
           this._fireConfigChanged();
         });
-      }
+      });
 
-      // Input de altura
-      const heightInput = this.querySelector("#height-input");
-      if (heightInput) {
-        heightInput.addEventListener("input", (ev) => {
-          this._config.max_height = ev.target.value + "px";
-          this._fireConfigChanged();
-        });
-      }
+      this.querySelector("#height-input").addEventListener("input", (ev) => {
+        this._config.max_height = ev.target.value + "px";
+        this._fireConfigChanged();
+      });
+
+      this.querySelector("#zoom-input").addEventListener("input", (ev) => {
+        this._config.zoom = parseInt(ev.target.value);
+        this._fireConfigChanged();
+      });
     }
 
     _fireConfigChanged() {
-      const event = new Event("config-changed", {
-        bubbles: true,
-        composed: true
-      });
+      const event = new Event("config-changed", { bubbles: true, composed: true });
       event.detail = { config: this._config };
       this.dispatchEvent(event);
     }
   }
 
-  customElements.define("gas-stations-list-card-editor", GasStationsListCardEditor);
+  customElements.define("gas-stations-card-editor", GasStationsCardEditor);
 
   // Registro de la tarjeta
   window.customCards = window.customCards || [];
   window.customCards.push({
     type: CARD_TYPE,
-    name: "Gas Stations List Card",
-    description: "Lista de gasolineras con scroll, orden y apertura de mapas según dispositivo.",
+    name: "Gas Stations Card",
+    description: "Combina mapa y lista de gasolineras con orden dinámico y navegación.",
   });
 
   console.info(
-    "%c  GAS-STATIONS-LIST-CARD  \n%c  Version 5.0 - Editor funcional  ",
+    "%c GAS-STATIONS-CARD %c v6.0 - Mapa + Lista combinados ",
     "color: orange; font-weight: bold; background: black",
     "color: white; font-weight: bold; background: dimgray"
   );
